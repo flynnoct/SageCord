@@ -22,7 +22,7 @@ class OpenAI_Parser():
         run = self._run_thread(thread) # run thread
         run_result = self._wait_for_run_finish(run)
         new_messages = self._get_new_messages(thread)
-        return str(new_messages)
+        return new_messages
 
     def _get_new_messages(self, thread):
         messages = self.client.beta.threads.messages.list(
@@ -33,7 +33,73 @@ class OpenAI_Parser():
             if message.role == "user":
                 messages = messages[:i]
                 break
-        return messages
+        parsed_messages = []
+        for message in messages:
+            parsed_messages.append(self._parse_message(message))
+        return parsed_messages[::-1]
+    
+    def _parse_message(self, message):
+        contents = message.content
+        parsed_contents = []
+        for content in contents:
+            content_type = content.type
+            # I love OpenAI for this sh*t 😅
+            if content_type == "text":
+                text_content = content.text.value
+                annotations = {"file_citation": [], "file_path": []}
+                for annotation in content.text.annotations:
+                    annotation_type = annotation.type
+                    # File citation
+                    if annotation_type == "file_citation":
+                        annotations["file_citation"].append({
+                            "placeholder_text": annotation.text,
+                            "file_id": annotation.file_citation.file_id,
+                            "quote": annotation.file_citation.quote,
+                            "start_index": annotation.start_index,
+                            "end_index": annotation.end_index
+                        })
+                    # File path - code interpreter
+                    elif annotation_type == "file_path":
+                        file_name = self.client.files.retrieve(annotation.file_path.file_id).filename
+                        # download file, TODO: try except
+                        file_api_response = self.client.files.with_raw_response.retrieve_content(annotation.file_path.file_id)
+                        if file_api_response.status_code == 200:
+                            file_content = file_api_response.content
+                        annotations["file_path"].append({
+                            "placeholder_text": annotation.text,
+                            "file_id": annotation.file_path.file_id,
+                            "file_name": file_name,
+                            "file_content": file_content,
+                            "start_index": annotation.start_index,
+                            "end_index": annotation.end_index
+                        })
+                    else:
+                        raise NotImplementedError
+                parsed_contents.append({
+                    "type": "text",
+                    "text_value": text_content,
+                    "annotations": annotations
+                })
+            elif content_type == "image_file":
+                print(89768757657687)
+                print(content)
+                print(self.client.files.retrieve(content.image_file.file_id))
+                file_name = self.client.files.retrieve(content.image_file.file_id).filename
+                # download file, TODO: Add try except
+                file_api_response = self.client.files.with_raw_response.retrieve_content(content.image_file.file_id)
+                if file_api_response.status_code == 200:
+                    file_content = file_api_response.content
+                parsed_contents.append({
+                    "type": "image_file",
+                    "file_id": content.image_file.file_id,
+                    "file_name": file_name + ".png",
+                    "file_content": file_content,
+                })
+            else:
+                raise NotImplementedError
+        return parsed_contents
+
+
 
     def _wait_for_run_finish(self, run):
         for _ in range(60 * 2): # 60 seconds
@@ -43,6 +109,7 @@ class OpenAI_Parser():
             )
             # About run status: https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps
             # return when these statuses are reached, else wait 0.5 second
+            # TODO: add status return
             if run.status == "completed":
                 return
             elif run.status == "failed":

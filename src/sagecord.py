@@ -1,3 +1,4 @@
+import io
 import discord
 import logging
 from config_loader import ConfigLoader as CL
@@ -22,12 +23,62 @@ async def on_message(message):
     # if message.content.startswith('$hello'):
     #     await message.channel.send('Hello!')
     print(message)
-    print(type(message.content), message.content)
 
-    # DM Message
+    # DM Message, ignore for now FIXME
     if isinstance(message.channel, discord.channel.DMChannel):
-        response = message_processor.get_response(content = message.content, context_id = message.channel.id)
-        await message.reply(response)
+        return
+    
+    # FIXME: temp patch
+    if message.channel.id == 1172458968849862737:
+        return
+    
+    response_messages = message_processor.get_response(content = message.content, context_id = message.channel.id)
+    for response_message in response_messages:
+        for content in response_message:
+            # if it's a text message
+            if content["type"] == "text":
+                text_value = content["text_value"]
+                discord_files = []
+                placeholder_texts = []
+                # file paths
+                annotations = content["annotations"]["file_path"]
+                for annotation in annotations:
+                    discord_files.append(
+                        discord.File(
+                            fp = io.BytesIO(annotation["file_content"]), 
+                            filename = annotation["file_name"]
+                            )
+                        )
+                    placeholder_texts.append(annotation["placeholder_text"])
+                # file citations
+                annotations = content["annotations"]["file_citation"]
+                for annotation in annotations:
+                    pass
+                if len(discord_files) == 0: # no files
+                    await message.reply(text_value)
+                else: # with files
+                    discord_files = discord_files[:10] # file limit
+                    placeholder_texts = placeholder_texts[:10]
+                    sent_message = await message.reply(text_value, files = discord_files)
+                    for i in range(len(sent_message.attachments)):
+                        attachment = sent_message.attachments[i]
+                        placeholder_text = placeholder_texts[i]
+                        attachment_url = attachment.url
+                        text_value = text_value.replace(placeholder_text, attachment_url)
+                    await sent_message.edit(content = text_value)
+
+            # elif it is an image
+            elif content["type"] == "image_file":
+                await message.reply(
+                    file = discord.File(
+                        fp = io.BytesIO(content["file_content"]), 
+                        filename = content["file_name"]
+                        )
+                    )
+            else:
+                raise Exception("Unknown message type")
+
+
 
 # handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 
