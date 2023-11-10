@@ -148,6 +148,7 @@ class OpenAI_Parser():
             return thread
         else: # create thread
             thread = self.client.beta.threads.create()
+            self._update_thread_mapping(context_id, thread.id)
             return thread
     
 
