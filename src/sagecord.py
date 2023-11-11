@@ -31,8 +31,16 @@ async def on_message(message):
     # FIXME: temp patch
     if message.channel.id == 1172458968849862737:
         return
-    
-    response_messages = message_processor.get_response(content = message.content, context_id = message.channel.id)
+    # Parse attachments
+    user_attachments = []
+    if message.attachments:
+        for attachment in message.attachments:
+            user_attachments.append(await attachment.read())
+
+    response_messages = message_processor.get_response(
+        content = message.content, 
+        attachments = user_attachments,
+        context_id = message.channel.id)
     for response_message in response_messages:
         for content in response_message:
             # if it's a text message

@@ -15,14 +15,27 @@ class OpenAI_Parser():
             self.thread_mapping_table = {}
 
     
-    def get_response(self, content, context_id):
+    def get_response(self, content, attachments, context_id):
         context_id = str(context_id) # convert to string
+        uploaded_files = self._parse_attachments(attachments)
         thread = self._get_thread(context_id)
-        user_message = self._create_message(content, thread) # create message containing user's message
+        self._set_thread_files(context_id, uploaded_files)
+        user_message = self._create_message(content, uploaded_files, thread) # create message containing user's message
         run = self._run_thread(thread) # run thread
         run_result = self._wait_for_run_finish(run)
         new_messages = self._get_new_messages(thread)
         return new_messages
+    
+    def _parse_attachments(self, user_attachments):
+        uploaded_files = []
+        for attachment in user_attachments:
+            uploaded_files.append(
+                self.client.files.create(
+                    file = attachment,
+                    purpose = "assistants"
+                    )
+                )
+        return uploaded_files
 
     def _get_new_messages(self, thread):
         messages = self.client.beta.threads.messages.list(
@@ -131,31 +144,52 @@ class OpenAI_Parser():
         )
         return run
 
-    def _create_message(self, content, thread):
+    def _create_message(self, content, uploaded_files, thread):
         message = self.client.beta.threads.messages.create(
             thread_id = thread.id,
             role = "user",
-            content = content
+            content = content,
+            file_ids = [uploaded_file.id for uploaded_file in uploaded_files]
         )
         return message
 
     # get thread if exists, else create thread, update thread last used time then return thread
     def _get_thread(self, context_id):
         if context_id in self.thread_mapping_table: # get thread
-            thread_id = self.thread_mapping_table[context_id]["thread_id"]
-            self._update_thread_mapping(context_id, thread_id) # update last_used
-            thread = self.client.beta.threads.retrieve(thread_id)
-            return thread
+            if not datetime.now().timestamp() - self.thread_mapping_table[context_id]["last_used"] > int(CL.get("openai", "thread_timeout_in_seconds")): # check if thread is expired
+                thread_id = self.thread_mapping_table[context_id]["thread_id"]
+                self._update_thread_mapping(context_id, thread_id) # update last_used
+                thread = self.client.beta.threads.retrieve(thread_id)
+                return thread
+            else:
+                self._clean_expired_threads(context_id)
+                return self._get_thread(context_id)
         else: # create thread
             thread = self.client.beta.threads.create()
             self._update_thread_mapping(context_id, thread.id)
             return thread
+        
+    def _clean_expired_threads(self, context_id):
+        for file_id in self.thread_mapping_table[context_id]["file_ids"]:
+            self.client.files.delete(file_id)
+        self.client.beta.threads.delete(self.thread_mapping_table[context_id]["thread_id"])
+        self.thread_mapping_table.pop(context_id)
+        
+    def _set_thread_files(self, context_id, uploaded_files):
+        thread_id = self.thread_mapping_table[context_id]["thread_id"]
+        self._update_thread_mapping(context_id, thread_id, [uploaded_file.id for uploaded_file in uploaded_files])
     
 
-    def _update_thread_mapping(self, context_id, thread_id):
-        self.thread_mapping_table[context_id] = {
-            "thread_id": thread_id,
-            "last_used": datetime.now().timestamp()
-        }
+    def _update_thread_mapping(self, context_id, thread_id, append_file_ids = []):
+        if context_id in self.thread_mapping_table:
+            self.thread_mapping_table[context_id]["last_used"] = datetime.now().timestamp()
+            self.thread_mapping_table[context_id]["thread_id"] = thread_id
+            self.thread_mapping_table[context_id]["file_ids"] += append_file_ids
+        else:
+            self.thread_mapping_table[context_id] = {
+                "thread_id": thread_id,
+                "last_used": datetime.now().timestamp(),
+                "file_ids": []
+            }
         with open("./thread_mapping.json", "w") as f:
             json.dump(self.thread_mapping_table, f)
