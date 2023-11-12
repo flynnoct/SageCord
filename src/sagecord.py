@@ -1,13 +1,18 @@
 import io
 import discord
 import logging
+from discord.ext import commands
 from config_loader import ConfigLoader as CL
 from message_processor import MessageProcessor
+
+COMMAND_PREFIX = "$"
+
 
 intents = discord.Intents.default()
 intents.message_content = True
 
-client = discord.Client(intents=intents)
+# client = discord.Client(intents=intents)
+client = commands.Bot(command_prefix = COMMAND_PREFIX, intents=intents)
 
 message_processor = MessageProcessor()
 
@@ -15,13 +20,18 @@ message_processor = MessageProcessor()
 async def on_ready():
     print(f'We have logged in as {client.user}')
 
+
+@client.command(name='new_thread')
+async def new_thread(context):
+    message_processor.new_thread(context.channel.id)
+    await context.send('🧹 A new thread has been created.')
+
+
 @client.event
 async def on_message(message):
     if message.author == client.user: # Prevents bot from responding to itself
         return
 
-    # if message.content.startswith('$hello'):
-    #     await message.channel.send('Hello!')
     print(message)
 
     # DM Message, ignore for now FIXME
@@ -31,6 +41,12 @@ async def on_message(message):
     # FIXME: temp patch
     if message.channel.id == 1172458968849862737:
         return
+    
+    # process commands first
+    if message.content.startswith(COMMAND_PREFIX):
+        await client.process_commands(message)
+        return
+
     # Parse attachments
     user_attachments = []
     if message.attachments:
@@ -41,6 +57,7 @@ async def on_message(message):
         content = message.content, 
         attachments = user_attachments,
         context_id = message.channel.id)
+
     for response_message in response_messages:
         for content in response_message:
             # if it's a text message
@@ -83,8 +100,9 @@ async def on_message(message):
                         filename = content["file_name"]
                         )
                     )
-            else:
-                raise Exception("Unknown message type")
+            elif content["type"] == "thread_killed":
+                await message.reply("🧹 A new thread has been created.")
+                return
 
 
 

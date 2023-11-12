@@ -11,3 +11,6 @@ class MessageProcessor:
             context_id
             )
         return response_content
+    
+    def new_thread(self, context_id):
+        self.openai_parser.new_thread(context_id)
