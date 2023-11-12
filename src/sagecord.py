@@ -7,7 +7,6 @@ from message_processor import MessageProcessor
 
 COMMAND_PREFIX = "$"
 
-
 intents = discord.Intents.default()
 intents.message_content = True
 
